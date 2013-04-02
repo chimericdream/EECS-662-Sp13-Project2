@@ -1,0 +1,79 @@
+#lang plai
+;;;;
+;; CFAE stuff
+;;
+(define-type CFAE
+    (num (n number?))
+    (binop (op symbol?) (lhs CFAE?) (rhs CFAE?))
+    (with (name symbol?) (named-expr CFAE?) (body CFAE?))
+    (id (name symbol?)))
+
+(define subst
+    (lambda (expr sub-id val)
+        (type-case CFAE expr
+            (num (x) expr)
+            (binop (op l r) (binop op (subst l sub-id val) (subst r sub-id val)))
+            (with (bound-id named-expr bound-body)
+                (if (symbol=? bound-id sub-id)
+                    (with bound-id (subst named-expr sub-id val) bound-body)
+                    (with bound-id (subst named-expr sub-id val) (subst bound-body sub-id val))))
+            (id (v) (if (symbol=? v sub-id) val expr)))))
+
+(define eval-cfae
+    (lambda (a-cfae)
+        (type-case CFAE a-cfae
+            (num (x) (num x))
+            (binop (op l r) ((lookup op ops) (eval-cfae l) (eval-cfae r)))
+            (with (bound-id named-expr bound-body) (eval-cfae (subst bound-body bound-id (num (eval-cfae named-expr)))))
+            (id (v) (error 'eval-cfae->id (string-append "Found a free identifier (" (symbol->string v) ")"))))))
+
+;;;;
+;; Binop stuff
+;;
+(define-type Binop
+    (bop (name symbol?) (op procedure?)))
+
+(define lookup
+    (lambda (op-name op-table)
+        (cond ((empty? op-table) (error 'lookup (string-append "Operator not found: " (symbol->string op-name))))
+            (else
+                (if (symbol=? (bop-name (car op-table)) op-name)
+                    (bop-op (car op-table))
+                    (lookup op-name (cdr op-table)))))))
+
+(define ops (list
+    (bop 'add +)
+    (bop 'sub -)
+    (bop 'mul *)
+    (bop 'div /)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;;;
+;; Tests
+;;
+
+(define test (lambda (a-cfae expected-result) (cond ((equal? (eval-cfae expected-result) (eval-cfae a-cfae)) (error 'test "There is a failing test")))))
+
+; returns -35
+(eval-cfae (binop 'add (binop 'sub (binop 'sub (num 4) (num 3)) (num 15)) (binop 'add (binop 'add (binop 'sub (num 10) (num 5)) (binop 'sub (num 3) (num 2))) (binop 'sub (num 15) (num 42)))))
+
+; returns 10
+(eval-cfae (binop 'div (num 50) (num 5)))
+
+; test the op-table
+(lookup 'add ops)
+(lookup 'sub ops)
+(lookup 'mul ops)
+(lookup 'div ops)
+
+(test (eval-cfae (binop 'add (num 1) (num 2))) (num 3))
+;(test (eval-cfae (binop 'mul (num 2) (num 2))) (num 4))
+;(test (eval-cfae (if0 (num 0) (num 1) (num 2))) (num 1))
+;(test (eval-cfae (app (fun 'x (id 'x)) (num 5))) (num 5))
+;(test (eval-cfae (app (fun 'x (binop 'add (id 'x) (num 1))) (num 1))) (num 2))
+;(test (eval-cfae (if0 (app (fun 'x (binop 'sub (id 'x) (num 2))) (num 3)) (app (fun 'x (binop 'mul (id 'x) (num 2))) (num 10)) (app (fun 'x (binop 'div (id 'x) (num 2))) (num 8)))) (num 4))
+;(test (eval-cfae (app (if0 (num 0) (fun 'x (binop 'add (id 'x) (num 1))) (fun 'x (binop 'add (id 'x) (num 2)))) (num 0))) (num 1))
+;(test (eval-cfae (app (fun 'x (app (fun 'y (binop '+ (id 'x) (id 'y))) (num 3))) (num 2))) (num 5))
+;(test (eval-cfae (fun 'x (binop 'add (id 'x) (num 1)))) (fun 'x (binop 'add (id 'x) (num 1))))
+;(test (eval-cfae (fun 'x (id 'x))) (fun 'x (id 'x)))
